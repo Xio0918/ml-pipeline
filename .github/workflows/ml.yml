@@ -1,4 +1,4 @@
-name: ML Pipeline CI
+name: ML Pipeline CI/CD
 
 on:
   push:
@@ -9,32 +9,41 @@ on:
 jobs:
   build-and-train:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
 
+    steps:
+      # 1️⃣ Clonar el repositorio
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2️⃣ Configurar Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
+      # 3️⃣ Instalar dependencias
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # 4️⃣ Ejecutar pruebas unitarias
       - name: Run tests
-        env:
-          PYTHONPATH: ./src
-        run: pytest -q
+        run: |
+          PYTHONPATH=. pytest -q
 
+      # 5️⃣ Entrenar el modelo (pipeline principal)
       - name: Train model
-        env:
-          PYTHONPATH: ./src
-        run: python -m src.train --data-path data/winequality-red.csv --mlruns mlruns --output-dir models
+        run: |
+          PYTHONPATH=. python src/train.py
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      # 6️⃣ Guardar modelo y métricas como artefactos
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v3
         with:
           name: trained-model
-          path: models/
+          path: |
+            mlruns/
+            outputs/
+            artifacts/
+            metrics/
