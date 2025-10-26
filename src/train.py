@@ -1,59 +1,82 @@
+import os
+import argparse
+import pandas as pd
 import mlflow
 import mlflow.sklearn
-import argparse
-import joblib
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error, r2_score
-from sklearn.pipeline import Pipeline
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from preprocess import load_data, preprocess, train_test_split_data
-from utils import ensure_dir
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, f1_score
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--data-path", type=str, default="data/winequality-red.csv")
-    parser.add_argument("--mlruns", type=str, default="mlruns")
-    parser.add_argument("--n_estimators", type=int, default=50)
-    parser.add_argument("--max_depth", type=int, default=5)
-    parser.add_argument("--random_state", type=int, default=42)
-    parser.add_argument("--output-dir", type=str, default="models")
-    return parser.parse_args()
+# 📁 Crear carpeta si no existe
+def ensure_dir(path):
+    """Crea la carpeta si no existe."""
+    if not os.path.exists(path):
+        os.makedirs(path)
 
 def main():
-    args = parse_args()
-    ensure_dir(args.output-dir)
+    # 🎯 Argumentos por defecto
+    parser = argparse.ArgumentParser(description="Entrenamiento automático del modelo ML")
+    parser.add_argument("--data", type=str, default="data/dataset.csv", help="Ruta del dataset")
+    parser.add_argument("--output_dir", type=str, default="outputs", help="Carpeta de salida")
+    parser.add_argument("--test_size", type=float, default=0.2, help="Proporción de datos de test")
+    args = parser.parse_args()
 
-    mlflow.set_tracking_uri(f"file://{args.mlruns}")
-    mlflow.set_experiment("wine_quality_experiment")
+    # 📂 Asegurar que la carpeta de salida exista
+    ensure_dir(args.output_dir)
 
-    df = load_data(args.data_path)
-    X, y = preprocess(df, target='quality')
-    X_train, X_test, y_train, y_test = train_test_split_data(X, y)
+    # 🧠 Cargar datos
+    df = pd.read_csv(args.data)
 
-    pipeline = Pipeline([
-        ("scaler", StandardScaler()),
-        ("model", RandomForestRegressor(n_estimators=args.n_estimators,
-                                        max_depth=args.max_depth,
-                                        random_state=args.random_state))
-    ])
+    # Supongamos que el dataset tiene columnas: feature1, feature2, ..., target
+    if "target" not in df.columns:
+        raise ValueError("El dataset debe contener una columna llamada 'target'")
+
+    X = df.drop("target", axis=1)
+    y = df["target"]
+
+    # ✂️ Dividir en train/test
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=args.test_size, random_state=42)
+
+    # ⚙️ Escalamiento
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+
+    # 🤖 Modelo
+    model = LogisticRegression(max_iter=500)
+
+    # 🎯 MLflow Tracking
+    mlflow.set_experiment("ML_Pipeline_Automation")
 
     with mlflow.start_run():
-        mlflow.log_param("n_estimators", args.n_estimators)
-        mlflow.log_param("max_depth", args.max_depth)
+        # Entrenamiento
+        model.fit(X_train_scaled, y_train)
+        y_pred = model.predict(X_test_scaled)
 
-        pipeline.fit(X_train, y_train)
-        preds = pipeline.predict(X_test)
+        # Métricas
+        acc = accuracy_score(y_test, y_pred)
+        f1 = f1_score(y_test, y_pred, average="weighted")
 
-        mse = mean_squared_error(y_test, preds)
-        r2 = r2_score(y_test, preds)
+        # Registro de métricas
+        mlflow.log_metric("accuracy", acc)
+        mlflow.log_metric("f1_score", f1)
 
-        mlflow.log_metric("mse", float(mse))
-        mlflow.log_metric("r2", float(r2))
+        # Registro de parámetros
+        mlflow.log_param("test_size", args.test_size)
+        mlflow.log_param("model", "LogisticRegression")
 
-        mlflow.sklearn.log_model(pipeline, "model")
-        joblib.dump(pipeline, f"{args.output_dir}/model.joblib")
+        # Guardar modelo con MLflow
+        mlflow.sklearn.log_model(model, "model")
 
-        print(f"Run metrics: mse={mse:.4f}, r2={r2:.4f}")
+        # Guardar resultados locales
+        results_path = os.path.join(args.output_dir, "metrics.txt")
+        with open(results_path, "w") as f:
+            f.write(f"Accuracy: {acc}\nF1 Score: {f1}\n")
+
+        print(f"✅ Modelo entrenado y registrado correctamente.")
+        print(f"   Accuracy: {acc:.3f}")
+        print(f"   F1 Score: {f1:.3f}")
 
 if __name__ == "__main__":
     main()
